@@ -13,6 +13,7 @@ class WPRESS_Migrator_Settings {
 		add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
 		add_action( 'admin_post_wpress_migrator_check_updates', array( __CLASS__, 'handle_check_updates' ) );
 		add_action( 'admin_post_wpress_migrator_remove_token', array( __CLASS__, 'handle_remove_token' ) );
+		add_action( 'admin_post_wpress_migrator_test_connection', array( __CLASS__, 'handle_test_connection' ) );
 	}
 
 	public static function get_options() {
@@ -22,6 +23,9 @@ class WPRESS_Migrator_Settings {
 			'github_repo' => 'wpress-migrator',
 			'github_token' => '',
 			'github_asset' => 'wpress-migrator.zip',
+			'release_checksum' => '',
+			'update_channel' => 'stable',
+			'debug_logging' => '0',
 		);
 
 		$options = get_option( self::OPTION_NAME, array() );
@@ -57,6 +61,9 @@ class WPRESS_Migrator_Settings {
 		self::add_field( 'github_repo', 'GitHub Repo', 'Example: wpress-migrator.' );
 		self::add_field( 'github_token', 'GitHub Token', 'Optional. Needed for private repos or higher rate limits.' );
 		self::add_field( 'github_asset', 'Release Asset Name', 'Optional. Defaults to wpress-migrator.zip.' );
+		self::add_field( 'release_checksum', 'Release SHA-256', 'Optional. If set, updates verify the ZIP checksum.' );
+		self::add_field( 'update_channel', 'Update Channel', 'Choose stable or beta (pre-releases).' );
+		self::add_field( 'debug_logging', 'Debug Logging', 'Log update checks to the PHP error log.' );
 	}
 
 	private static function add_field( $key, $label, $help ) {
@@ -78,8 +85,36 @@ class WPRESS_Migrator_Settings {
 		$key = $args['key'];
 		$value = isset( $options[ $key ] ) ? $options[ $key ] : '';
 
+		if ( $key === 'access_key' && self::is_token_set() ) {
+			echo '<div class="description">Access Key is disabled because a GitHub token is set in wp-config.php.</div>';
+			return;
+		}
+
 		if ( $key === 'github_token' ) {
 			$value = '';
+		}
+
+		if ( $key === 'debug_logging' ) {
+			$checked = ! empty( $value ) ? 'checked' : '';
+			echo '<label><input type="checkbox" name="' . esc_attr( self::OPTION_NAME ) . '[' . esc_attr( $key ) . ']" value="1" ' . $checked . ' /> Enable debug logging</label>';
+
+			if ( ! empty( $args['help'] ) ) {
+				printf( '<p class="description">%s</p>', esc_html( $args['help'] ) );
+			}
+			return;
+		}
+
+		if ( $key === 'update_channel' ) {
+			$current = $value !== '' ? $value : 'stable';
+			echo '<select name="' . esc_attr( self::OPTION_NAME ) . '[' . esc_attr( $key ) . ']">';
+			echo '<option value="stable"' . selected( $current, 'stable', false ) . '>Stable</option>';
+			echo '<option value="beta"' . selected( $current, 'beta', false ) . '>Beta (pre-release)</option>';
+			echo '</select>';
+
+			if ( ! empty( $args['help'] ) ) {
+				printf( '<p class="description">%s</p>', esc_html( $args['help'] ) );
+			}
+			return;
 		}
 
 		$input_type = 'text';
@@ -130,6 +165,11 @@ class WPRESS_Migrator_Settings {
 				<?php submit_button( 'Check for updates now', 'secondary' ); ?>
 			</form>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<?php wp_nonce_field( 'wpress_migrator_test_connection' ); ?>
+				<input type="hidden" name="action" value="wpress_migrator_test_connection" />
+				<?php submit_button( 'Test GitHub connection', 'secondary' ); ?>
+			</form>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<?php wp_nonce_field( 'wpress_migrator_remove_token' ); ?>
 				<input type="hidden" name="action" value="wpress_migrator_remove_token" />
 				<?php submit_button( 'Remove token', 'delete' ); ?>
@@ -141,7 +181,7 @@ class WPRESS_Migrator_Settings {
 
 	public static function sanitize( $input ) {
 		$sanitized = array();
-		$fields = array( 'access_key', 'github_owner', 'github_repo', 'github_token', 'github_asset' );
+		$fields = array( 'access_key', 'github_owner', 'github_repo', 'github_token', 'github_asset', 'release_checksum', 'update_channel', 'debug_logging' );
 		$existing = self::get_options();
 		$token = isset( $input['github_token'] ) ? trim( $input['github_token'] ) : '';
 
@@ -172,7 +212,14 @@ class WPRESS_Migrator_Settings {
 				$sanitized[ $field ] = ( $token === '' ) ? $existing['github_token'] : '';
 				continue;
 			}
+			if ( $field === 'debug_logging' ) {
+				$sanitized[ $field ] = empty( $input[ $field ] ) ? '0' : '1';
+				continue;
+			}
 			$sanitized[ $field ] = isset( $input[ $field ] ) ? sanitize_text_field( $input[ $field ] ) : '';
+			if ( $field === 'update_channel' && ! in_array( $sanitized[ $field ], array( 'stable', 'beta' ), true ) ) {
+				$sanitized[ $field ] = 'stable';
+			}
 		}
 
 		return $sanitized;
@@ -233,6 +280,31 @@ class WPRESS_Migrator_Settings {
 		exit;
 	}
 
+	public static function handle_test_connection() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Unauthorized', 403 );
+		}
+
+		check_admin_referer( 'wpress_migrator_test_connection' );
+
+		$options = self::get_options();
+		$result = WPRESS_Migrator_Updater::test_github_connection( $options );
+
+		$type = $result['ok'] ? 'notice-success' : 'notice-error';
+		$message = $result['message'];
+		set_transient(
+			'wpress_migrator_update_notice',
+			array(
+				'type' => $type,
+				'message' => $message,
+			),
+			30
+		);
+
+		wp_safe_redirect( admin_url( 'options-general.php?page=wpress-migrator' ) );
+		exit;
+	}
+
 	private static function render_update_notice() {
 		$notice = get_transient( 'wpress_migrator_update_notice' );
 		if ( empty( $notice ) || ! is_array( $notice ) ) {
@@ -287,6 +359,10 @@ class WPRESS_Migrator_Settings {
 		}
 
 		echo '<div style="margin-top:6px; color:#a00; font-weight:600;">Token is not set</div>';
+	}
+
+	private static function is_token_set() {
+		return defined( 'WPRESS_MIGRATOR_GITHUB_TOKEN' ) && WPRESS_MIGRATOR_GITHUB_TOKEN !== '';
 	}
 
 	private static function store_token_in_wp_config( $token ) {
