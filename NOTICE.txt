@@ -1,0 +1,12 @@
+NOTICE
+
+WPRESS Migrator bundles third-party plugins. Those components retain their own
+copyrights and licenses.
+
+Bundled components:
+- All-in-One WP Migration (GPLv2 or later)
+- All-in-One WP Migration Google Drive Extension (license as provided in its folder)
+
+See the LICENSE files inside:
+- includes/wpm/
+- includes/wpmgd/

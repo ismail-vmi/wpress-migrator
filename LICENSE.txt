@@ -1,0 +1,24 @@
+WPRESS Migrator Proprietary License
+
+Copyright (c) 2026. All rights reserved.
+
+This license applies only to the WPRESS Migrator wrapper plugin code and does not
+change the licenses of bundled third-party components.
+
+Permissions
+- You may use this software on websites you control.
+- You may modify this software for your internal use.
+
+Restrictions
+- You may not redistribute, sell, or sublicense this software without written
+  permission from the copyright holder.
+- You may not remove or alter copyright or license notices.
+- You may not represent this software as your own.
+
+Disclaimer
+This software is provided "as is", without warranty of any kind, express or
+implied, including but not limited to the warranties of merchantability,
+fitness for a particular purpose and noninfringement. In no event shall the
+copyright holder be liable for any claim, damages or other liability, whether
+in an action of contract, tort or otherwise, arising from, out of or in
+connection with the software or the use or other dealings in the software.
