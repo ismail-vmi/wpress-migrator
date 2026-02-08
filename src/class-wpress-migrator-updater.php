@@ -5,9 +5,41 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class WPRESS_Migrator_Updater {
+	const RELEASE_TRANSIENT = 'wpress_migrator_latest_release';
+
 	public static function init() {
 		add_filter( 'pre_set_site_transient_update_plugins', array( __CLASS__, 'check_for_updates' ) );
 		add_filter( 'plugins_api', array( __CLASS__, 'plugin_information' ), 10, 3 );
+	}
+
+	public static function get_latest_version_info() {
+		$cached = get_transient( self::RELEASE_TRANSIENT );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$options = WPRESS_Migrator_Settings::get_options();
+		$owner = $options['github_owner'];
+		$repo = $options['github_repo'];
+
+		if ( empty( $owner ) || empty( $repo ) ) {
+			return array();
+		}
+
+		$token = self::get_github_token( $options );
+		$release = self::get_latest_release( $owner, $repo, $token, $options['access_key'] );
+		if ( empty( $release['tag_name'] ) ) {
+			return array();
+		}
+
+		$info = array(
+			'version' => self::normalize_version( $release['tag_name'] ),
+			'url' => isset( $release['html_url'] ) ? $release['html_url'] : '',
+		);
+
+		set_transient( self::RELEASE_TRANSIENT, $info, 5 * MINUTE_IN_SECONDS );
+
+		return $info;
 	}
 
 	public static function check_for_updates( $transient ) {
@@ -23,7 +55,8 @@ class WPRESS_Migrator_Updater {
 			return $transient;
 		}
 
-		$release = self::get_latest_release( $owner, $repo, $options['github_token'], $options['access_key'] );
+		$token = self::get_github_token( $options );
+		$release = self::get_latest_release( $owner, $repo, $token, $options['access_key'] );
 		if ( empty( $release['tag_name'] ) ) {
 			return $transient;
 		}
@@ -110,6 +143,14 @@ class WPRESS_Migrator_Updater {
 
 		$data = json_decode( $body, true );
 		return is_array( $data ) ? $data : array();
+	}
+
+	private static function get_github_token( $options ) {
+		if ( defined( 'WPRESS_MIGRATOR_GITHUB_TOKEN' ) && WPRESS_MIGRATOR_GITHUB_TOKEN !== '' ) {
+			return WPRESS_MIGRATOR_GITHUB_TOKEN;
+		}
+
+		return isset( $options['github_token'] ) ? $options['github_token'] : '';
 	}
 
 	private static function get_download_url( $release, $asset_name ) {
