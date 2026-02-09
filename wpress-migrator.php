@@ -25,7 +25,23 @@ require_once WPRESS_MIGRATOR_PATH . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPA
 WPRESS_Migrator_Settings::init();
 WPRESS_Migrator_Updater::init();
 
+register_activation_hook( __FILE__, array( 'WPRESS_Migrator_Settings', 'ensure_default_license' ) );
+
 function wpress_migrator_load_bundled_plugins() {
+	if ( ! WPRESS_Migrator_Settings::is_license_valid() ) {
+		add_action(
+			'admin_notices',
+			function() {
+				if ( ! current_user_can( 'activate_plugins' ) ) {
+					return;
+				}
+
+				echo '<div class="notice notice-warning"><p>Serial/license key is required to enable WPRESS Migrator.</p></div>';
+			}
+		);
+		return;
+	}
+
 	$core_plugin = WPRESS_MIGRATOR_INCLUDES . DIRECTORY_SEPARATOR . 'wpm' . DIRECTORY_SEPARATOR . 'all-in-one-wp-migration.php';
 	$gdrive_plugin = WPRESS_MIGRATOR_INCLUDES . DIRECTORY_SEPARATOR . 'wpmgd' . DIRECTORY_SEPARATOR . 'all-in-one-wp-migration-gdrive-extension.php';
 
